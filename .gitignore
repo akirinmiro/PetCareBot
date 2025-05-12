@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.db
+venv/
+.idea/
+.env
+__pycache__/
+*.db
+.env
+__pycache__/
+*.db
