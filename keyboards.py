@@ -59,7 +59,7 @@ def get_breeds_keyboard(pet_type: str):
     }.get(pet_type, [])
 
     buttons = [KeyboardButton(text=breed) for breed in breeds]
-    buttons.append(KeyboardButton(text="Без породы"))
+    buttons.append(KeyboardButton(text="Другая порода"))
     buttons.append(KeyboardButton(text="🔙 Назад"))
     buttons.append(KeyboardButton(text="🔙 Главное меню"))
 
