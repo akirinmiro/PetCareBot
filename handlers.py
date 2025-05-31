@@ -13,8 +13,8 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
 logger = logging.getLogger(__name__)
-
 router = Router()
+
 
 class Form(StatesGroup):
     pet_type = State()
@@ -31,10 +31,12 @@ class Form(StatesGroup):
     info_pet_type = State()
     info_category = State()
 
+
 @router.message(F.text == "🔙 Главное меню")
 async def back_to_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
     await start(message, state)
+
 
 @router.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
@@ -44,18 +46,20 @@ async def start(message: types.Message, state: FSMContext):
         reply_markup=get_main_menu()
     )
 
+
 @router.message(F.text == "ℹ️ О боте")
 async def about_bot(message: types.Message):
     text = (
-        "🤖 <b>PetCareBot</b> - ваш персональный помощник по уходу за питомцами\n\n"
+        "🤖 <b>PetCareBot</b> - ваш персональный помощник по уходу за питомцами\n"
         "📌 <b>Основные функции:</b>\n"
         "• Управление профилями питомцев\n"
         "• Настройка напоминаний о кормлении\n"
-        "• Контроль вакцинации с напоминаниями\n\n"
-        "🔄 <b>Версия:</b> 2.4\n"
-        "👨‍💻 <b>Поддержка:</b> @petcare_support"
+        "• Контроль вакцинации с напоминаниями\n"
+        "• Базовая информация по уходу за питомцами\n"
+
     )
     await message.answer(text, reply_markup=get_main_menu())
+
 
 @router.message(F.text == "🐾 Профиль")
 async def profile(message: types.Message):
@@ -64,18 +68,17 @@ async def profile(message: types.Message):
         if not user or not user.pets:
             await message.answer("У вас пока нет добавленных питомцев", reply_markup=get_main_menu())
             return
-
         await message.answer("🐾 <b>Ваши питомцы:</b>")
         for pet in user.pets:
             text = f"▪️ <b>{pet.name}</b> ({pet.pet_type.value})"
             if pet.breed:
                 text += f", порода: {pet.breed}"
             text += f"\n💉 Дата вакцинации: {pet.vaccination_date if pet.vaccination_date else 'не указана'}"
-
             await message.answer(
                 text,
                 reply_markup=get_pet_management_keyboard(pet)
             )
+
 
 @router.callback_query(F.data.startswith("delete_pet_"))
 async def delete_pet_handler(query: CallbackQuery):
@@ -87,16 +90,13 @@ async def delete_pet_handler(query: CallbackQuery):
                 for reminder in pet.reminders:
                     remove_reminder(reminder.id)
                     session.delete(reminder)
-
                 pet_name = pet.name
                 session.delete(pet)
                 session.commit()
-
                 try:
                     await query.message.delete()
                 except:
                     pass
-
                 await query.answer(f"✅ Питомец {pet_name} удален")
                 await query.message.answer(
                     f"Питомец {pet_name} успешно удален",
@@ -108,6 +108,7 @@ async def delete_pet_handler(query: CallbackQuery):
         logger.error(f"Ошибка при удалении: {e}")
         await query.answer("Ошибка при удалении")
 
+
 @router.message(F.text == "➕ Добавить питомца")
 async def add_pet_start(message: types.Message, state: FSMContext):
     await message.answer(
@@ -116,28 +117,27 @@ async def add_pet_start(message: types.Message, state: FSMContext):
     )
     await state.set_state(Form.pet_type)
 
+
 @router.message(Form.pet_type)
 async def process_pet_type(message: types.Message, state: FSMContext):
     if message.text == "🔙 Главное меню":
         await back_to_main_menu(message, state)
         return
-
     pet_type = None
     if message.text == "🐱 Кошка":
         pet_type = PetType.CAT
     elif message.text == "🐶 Собака":
         pet_type = PetType.DOG
-
     if not pet_type:
         await message.answer("Пожалуйста, выберите тип из предложенных")
         return
-
     await state.update_data(pet_type=pet_type)
     await message.answer(
         "✏️ Введите имя питомца:",
         reply_markup=get_back_button()
     )
     await state.set_state(Form.pet_name)
+
 
 @router.message(Form.pet_name)
 async def process_pet_name(message: types.Message, state: FSMContext):
@@ -151,11 +151,9 @@ async def process_pet_name(message: types.Message, state: FSMContext):
         )
         await state.set_state(Form.pet_type)
         return
-
     if len(message.text) > 50:
         await message.answer("Имя слишком длинное (макс. 50 символов)")
         return
-
     await state.update_data(pet_name=message.text)
     data = await state.get_data()
     await message.answer(
@@ -163,6 +161,7 @@ async def process_pet_name(message: types.Message, state: FSMContext):
         reply_markup=get_breeds_keyboard(data["pet_type"].value)
     )
     await state.set_state(Form.pet_breed)
+
 
 @router.message(Form.pet_breed)
 async def process_pet_breed(message: types.Message, state: FSMContext):
@@ -176,24 +175,22 @@ async def process_pet_breed(message: types.Message, state: FSMContext):
         )
         await state.set_state(Form.pet_name)
         return
-
     data = await state.get_data()
     valid_breeds = {
         "кошка": ["Британская", "Сиамская", "Мейн-кун"],
         "собака": ["Лабрадор", "Овчарка", "Бульдог"]
     }.get(data["pet_type"].value, [])
-
-    if message.text not in valid_breeds and message.text != "Без породы":
+    if message.text not in valid_breeds and message.text != "Другая порода":
         await message.answer("Пожалуйста, выберите породу из предложенных")
         return
-
-    breed = None if message.text == "Без породы" else message.text
+    breed = None if message.text == "Другая порода" else message.text
     await state.update_data(pet_breed=breed)
     await message.answer(
         "📅 Введите дату последней вакцинации (ДД.ММ.ГГГГ) или 'нет', если не вакцинирован:",
         reply_markup=get_back_button()
     )
     await state.set_state(Form.vaccination_date)
+
 
 @router.message(Form.vaccination_date)
 async def process_vaccination_date(message: types.Message, state: FSMContext):
@@ -203,20 +200,16 @@ async def process_vaccination_date(message: types.Message, state: FSMContext):
     if message.text.lower() == "нет":
         await save_pet_without_vaccination(message, state)
         return
-
     if not re.match(r'^\d{2}\.\d{2}\.\d{4}$', message.text):
         await message.answer("❌ Неверный формат. Введите ДД.ММ.ГГГГ или 'нет'")
         return
-
     try:
         day, month, year = map(int, message.text.split('.'))
         input_date = datetime(year, month, day).date()
         today = datetime.now().date()
-
         if input_date > today:
             await message.answer("❌ Дата не может быть в будущем. Введите корректную дату.")
             return
-
         one_year_ago = today - relativedelta(years=1)
         if input_date < one_year_ago:
             await message.answer(
@@ -226,7 +219,6 @@ async def process_vaccination_date(message: types.Message, state: FSMContext):
             )
             await state.update_data(vaccination_date=message.text)
             return
-
         next_year_date = input_date + relativedelta(years=1)
         if next_year_date <= today:
             await message.answer(
@@ -236,81 +228,70 @@ async def process_vaccination_date(message: types.Message, state: FSMContext):
             )
             await state.update_data(vaccination_date=message.text)
             return
-
         await state.update_data(vaccination_date=message.text)
         await message.answer(
             "Хотите установить напоминание о следующей вакцинации через год?",
             reply_markup=get_yes_no_vaccination_keyboard()
         )
         await state.set_state(Form.confirm_notification)
-
     except ValueError:
         await message.answer("❌ Некорректная дата. Введите ДД.ММ.ГГГГ")
+
 
 @router.callback_query(F.data.in_(["yes_vaccination", "no_vaccination"]))
 async def handle_vaccination_choice(query: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-
     if query.data == "yes_vaccination":
-        today = datetime.now().date().strftime("%d.%m.%Y")
 
-        if "pet_name" in data:
-            with Session() as session:
-                user = session.query(User).filter_by(telegram_id=query.from_user.id).first()
-                if not user:
-                    user = User(telegram_id=query.from_user.id)
-                    session.add(user)
-                    session.commit()
+        vaccination_date = data.get("vaccination_date")
+        if vaccination_date:
+            try:
+                day, month, year = map(int, vaccination_date.split('.'))
+                vacc_date = datetime(year, month, day).date()
+                next_vacc_date = vacc_date + relativedelta(years=1)
+                today = datetime.now().date()
+                while next_vacc_date <= today:
+                    next_vacc_date += relativedelta(years=1)
 
-                pet = Pet(
-                    name=data["pet_name"],
-                    breed=data["pet_breed"],
-                    pet_type=data["pet_type"],
-                    vaccination_date=today,
-                    owner=user
-                )
-                session.add(pet)
-                session.commit()
-
-                try:
-                    await schedule_vaccination_reminder(
-                        query.bot, pet.id, user.telegram_id,
-                        pet.name, today
+                with Session() as session:
+                    user = session.query(User).filter_by(telegram_id=query.from_user.id).first()
+                    if not user:
+                        user = User(telegram_id=query.from_user.id)
+                        session.add(user)
+                        session.commit()
+                    pet = Pet(
+                        name=data["pet_name"],
+                        breed=data["pet_breed"],
+                        pet_type=data["pet_type"],
+                        vaccination_date=vaccination_date,
+                        owner=user
                     )
-                    await query.message.answer(
-                        f"✅ Питомец {pet.name} добавлен! Напоминание установлено на сегодня.",
-                        reply_markup=get_main_menu()
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка напоминания: {e}")
-                    await query.message.answer(
-                        f"✅ Питомец {pet.name} добавлен, но напоминание не установлено",
-                        reply_markup=get_main_menu()
-                    )
-
-        elif "pet_id" in data:
-            with Session() as session:
-                pet = session.query(Pet).filter_by(id=data["pet_id"]).first()
-                if pet:
-                    pet.vaccination_date = today
+                    session.add(pet)
                     session.commit()
 
                     try:
                         await schedule_vaccination_reminder(
-                            query.bot, pet.id, pet.owner.telegram_id,
-                            pet.name, today
+                            query.bot, pet.id, user.telegram_id,
+                            pet.name, next_vacc_date.strftime("%d.%m.%Y")
                         )
                         await query.message.answer(
-                            f"✅ Для {pet.name} установлена сегодняшняя дата вакцинации",
+                            f"✅ Питомец {pet.name} добавлен! "
+                            f"Напоминание установлено на {next_vacc_date.strftime('%d.%m.%Y')}.",
                             reply_markup=get_main_menu()
                         )
                     except Exception as e:
                         logger.error(f"Ошибка напоминания: {e}")
                         await query.message.answer(
-                            "❌ Ошибка при установке напоминания",
+                            f"✅ Питомец {pet.name} добавлен, но напоминание не установлено",
                             reply_markup=get_main_menu()
                         )
-
+            except ValueError:
+                await query.message.answer("❌ Некорректная дата. Введите ДД.ММ.ГГГГ")
+        else:
+            await query.message.answer("Дата вакцинации не указана")
+    elif query.data == "no_vaccination":
+        # Логика для "нет"
+        pass
     elif query.data == "no_vaccination":
         if "pet_name" in data:
             with Session() as session:
@@ -319,7 +300,6 @@ async def handle_vaccination_choice(query: CallbackQuery, state: FSMContext):
                     user = User(telegram_id=query.from_user.id)
                     session.add(user)
                     session.commit()
-
                 pet = Pet(
                     name=data["pet_name"],
                     breed=data["pet_breed"],
@@ -329,30 +309,26 @@ async def handle_vaccination_choice(query: CallbackQuery, state: FSMContext):
                 )
                 session.add(pet)
                 session.commit()
-
             await query.message.answer(
                 f"✅ Питомец {data['pet_name']} добавлен без даты вакцинации",
                 reply_markup=get_main_menu()
             )
-
         elif "pet_id" in data:
             with Session() as session:
                 pet = session.query(Pet).filter_by(id=data["pet_id"]).first()
                 if pet:
                     pet.vaccination_date = None
                     session.commit()
-
                     for job in scheduler.get_jobs():
                         if job.id.startswith(f"vacc_{pet.id}_"):
                             scheduler.remove_job(job.id)
-
                     await query.message.answer(
                         f"✅ Дата вакцинации для {pet.name} удалена",
                         reply_markup=get_main_menu()
                     )
-
     await state.clear()
     await query.answer()
+
 
 async def save_pet_without_vaccination(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -362,7 +338,6 @@ async def save_pet_without_vaccination(message: types.Message, state: FSMContext
             user = User(telegram_id=message.from_user.id)
             session.add(user)
             session.commit()
-
         pet = Pet(
             name=data["pet_name"],
             breed=data["pet_breed"],
@@ -372,12 +347,12 @@ async def save_pet_without_vaccination(message: types.Message, state: FSMContext
         )
         session.add(pet)
         session.commit()
-
     await message.answer(
         f"✅ Питомец {data['pet_name']} успешно добавлен без даты вакцинации!",
         reply_markup=get_main_menu()
     )
     await state.clear()
+
 
 @router.callback_query(F.data.startswith("edit_vacc_"))
 async def edit_vaccination_start(query: CallbackQuery, state: FSMContext):
@@ -389,6 +364,7 @@ async def edit_vaccination_start(query: CallbackQuery, state: FSMContext):
     )
     await state.set_state(Form.edit_vaccination_date)
     await query.answer()
+
 
 @router.message(Form.edit_vaccination_date)
 async def process_edit_vaccination(message: types.Message, state: FSMContext):
@@ -402,31 +378,25 @@ async def process_edit_vaccination(message: types.Message, state: FSMContext):
             if pet:
                 pet.vaccination_date = None
                 session.commit()
-
                 for job in scheduler.get_jobs():
                     if job.id.startswith(f"vacc_{pet.id}_"):
                         scheduler.remove_job(job.id)
-
                 await message.answer(
                     f"✅ Дата вакцинации для {pet.name} удалена",
                     reply_markup=get_main_menu()
                 )
         await state.clear()
         return
-
     if not re.match(r'^\d{2}\.\d{2}\.\d{4}$', message.text):
         await message.answer("❌ Неверный формат. Введите ДД.ММ.ГГГГ или 'нет'")
         return
-
     try:
         day, month, year = map(int, message.text.split('.'))
         input_date = datetime(year, month, day).date()
         today = datetime.now().date()
-
         if input_date > today:
             await message.answer("❌ Дата не может быть в будущем. Введите корректную дату.")
             return
-
         one_year_ago = today - relativedelta(years=1)
         if input_date < one_year_ago:
             await message.answer(
@@ -436,7 +406,6 @@ async def process_edit_vaccination(message: types.Message, state: FSMContext):
             )
             await state.update_data(old_date=message.text)
             return
-
         next_year_date = input_date + relativedelta(years=1)
         if next_year_date <= today:
             await message.answer(
@@ -446,11 +415,10 @@ async def process_edit_vaccination(message: types.Message, state: FSMContext):
             )
             await state.update_data(vaccination_date=message.text)
             return
-
         await save_vaccination_date(message, state, message.text)
-
     except ValueError:
         await message.answer("❌ Некорректная дата. Введите ДД.ММ.ГГГГ")
+
 
 async def save_vaccination_date(message: types.Message, state: FSMContext, new_date: str):
     data = await state.get_data()
@@ -460,7 +428,6 @@ async def save_vaccination_date(message: types.Message, state: FSMContext, new_d
             old_date = pet.vaccination_date
             pet.vaccination_date = new_date
             session.commit()
-
             try:
                 await schedule_vaccination_reminder(
                     message.bot, pet.id, pet.owner.telegram_id,
@@ -482,8 +449,8 @@ async def save_vaccination_date(message: types.Message, state: FSMContext, new_d
                 )
         else:
             await message.answer("Питомец не найден")
-
     await state.clear()
+
 
 @router.message(F.text == "📚 Справка")
 async def info_start(message: types.Message, state: FSMContext):
@@ -492,6 +459,10 @@ async def info_start(message: types.Message, state: FSMContext):
         reply_markup=get_info_pet_type_keyboard()
     )
     await state.set_state(Form.info_pet_type)
+
+def register_handlers(dp: Dispatcher, bot: Bot):
+    dp.include_router(router)
+
 
 @router.message(Form.info_pet_type)
 async def info_pet_type_selected(message: types.Message, state: FSMContext):
