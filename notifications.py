@@ -4,13 +4,11 @@ from database import Session, Reminder, Pet
 import pytz
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
@@ -26,7 +24,7 @@ async def send_notification(bot: Bot, chat_id: int, message: str):
 async def schedule_vaccination_reminder(bot: Bot, pet_id: int, chat_id: int, pet_name: str, vaccination_date: str):
     try:
         for job in scheduler.get_jobs():
-            if job.id.startswith(f"vacc_{pet_id}_"):
+            if job.id and job.id.startswith(f"vacc_{pet_id}_"):
                 scheduler.remove_job(job.id)
 
         if not vaccination_date:
@@ -34,90 +32,95 @@ async def schedule_vaccination_reminder(bot: Bot, pet_id: int, chat_id: int, pet
 
         day, month, year = map(int, vaccination_date.split('.'))
         vacc_date = datetime(year, month, day).date()
-        next_vacc_date = vacc_date + relativedelta(years=1)
         today = datetime.now().date()
 
-        while next_vacc_date <= today:
-            next_vacc_date += relativedelta(years=1)
+        next_vacc_date = vacc_date + relativedelta(years=1)
+
+        if next_vacc_date <= today:
+            next_vacc_date = today + relativedelta(years=1)
 
         message = f"⏰ {pet_name}, пора на ежегодную вакцинацию!"
+        job_id = f"vacc_{pet_id}_{uuid.uuid4().hex[:4]}"
 
         scheduler.add_job(
             send_notification,
             'date',
-            run_date=datetime(next_vacc_date.year, next_vacc_date.month, next_vacc_date.day, 9, 0),
+            run_date=datetime(
+                next_vacc_date.year,
+                next_vacc_date.month,
+                next_vacc_date.day,
+                9, 0  # В 9:00 утра
+            ),
             args=[bot, chat_id, message],
-            id=f"vacc_{pet_id}_{uuid.uuid4().hex[:8]}"  # Увеличенная уникальность ID
+            id=job_id,
+            misfire_grace_time=3600
         )
 
         logger.info(f"Напоминание о вакцинации установлено для {pet_name} на {next_vacc_date}")
-
-    except ValueError as ve:
-        logger.error(f"Ошибка формата даты при установке напоминания: {ve}")
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при создании напоминания о вакцинации: {e}", exc_info=True)
+        logger.error(f"Ошибка создания напоминания о вакцинации: {e}")
         raise
 
 
 async def schedule_jobs(bot: Bot):
     try:
-
         for job in scheduler.get_jobs():
-            if job.id.startswith(("reminder_", "vacc_")):
+            if job.id and job.id.startswith(("reminder_", "vacc_")):
                 scheduler.remove_job(job.id)
 
         with Session() as session:
-            for reminder in session.query(Reminder).all():
+            reminders = session.query(Reminder).all()
+            for reminder in reminders:
                 try:
+                    if not reminder.pet:
+                        continue
+
                     hour, minute = map(int, reminder.time.split(':'))
-                    days = None if reminder.days == "daily" else reminder.days
+                    days = "daily" if reminder.days == "daily" else reminder.days
+                    job_id = f"reminder_{reminder.id}_{uuid.uuid4().hex[:4]}"
 
                     scheduler.add_job(
                         send_notification,
                         'cron',
-                        day_of_week=days,
+                        day_of_week=None if reminder.days == "daily" else days,
                         hour=hour,
                         minute=minute,
                         args=[bot, reminder.pet.owner.telegram_id, f"⏰ Пора покормить {reminder.pet.name}!"],
-                        id=f"reminder_{reminder.id}_{uuid.uuid4().hex[:6]}",
-                        timezone='Europe/Moscow'
+                        id=job_id,
+                        timezone='Europe/Moscow',
+                        misfire_grace_time=300
                     )
                 except Exception as e:
-                    logger.error(f"Ошибка при добавлении напоминания о кормлении ({reminder.id}): {e}")
+                    logger.error(f"Ошибка напоминания {reminder.id}: {e}")
 
 
-            for pet in session.query(Pet).all():
+            pets = session.query(Pet).all()
+            for pet in pets:
                 if pet.vaccination_date:
                     try:
                         await schedule_vaccination_reminder(
-                            bot,
-                            pet.id,
-                            pet.owner.telegram_id,
-                            pet.name,
-                            pet.vaccination_date
+                            bot, pet.id, pet.owner.telegram_id,
+                            pet.name, pet.vaccination_date
                         )
                     except Exception as e:
-                        logger.error(f"Ошибка при добавлении напоминания о вакцинации ({pet.id}): {e}")
-
+                        logger.error(f"Ошибка вакцинации {pet.id}: {e}")
 
         if not scheduler.running:
             scheduler.start()
-            logger.info("Планировщик задач успешно запущен")
-        else:
-            logger.warning("Планировщик уже запущен")
-
+            logger.info("Планировщик задач запущен")
     except Exception as e:
-        logger.error(f"Ошибка при перезагрузке задач: {e}", exc_info=True)
+        logger.error(f"Ошибка планировщика: {e}")
+        raise
 
 
 def remove_reminder(reminder_id: int):
     try:
         removed = False
         for job in scheduler.get_jobs():
-            if job.id.startswith(f"reminder_{reminder_id}_") or job.id.startswith(f"vacc_{reminder_id}_"):
+            if job.id and (f"reminder_{reminder_id}_" in job.id or f"vacc_{reminder_id}_" in job.id):
                 scheduler.remove_job(job.id)
                 removed = True
         return removed
     except Exception as e:
-        logger.error(f"Ошибка при удалении напоминания ID={reminder_id}: {e}")
+        logger.error(f"Ошибка удаления напоминания: {e}")
         return False
